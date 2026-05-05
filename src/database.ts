@@ -2,9 +2,6 @@
 import { log } from "console"
 import pg from "pg"
 import { Client, Result } from "pg"
-import { nowUnixTimestamp } from "./utils"
-
-// Contains code from MAL for reference
 
 export interface Weather {
   time: number
@@ -63,25 +60,6 @@ export default class Database {
     }
   }
 
-  // Only for reference, will be removed before deployment
-  async createPrediction(prediction: WeatherPrediction) {
-    const result = await this.client.query(
-      `INSERT INTO "WeatherPrediction" (predicted_time, prediction_offset, temperature, humidity, wind_direction, wind_speed, precipitation, light) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-      [
-        prediction.predictedTime,
-        prediction.predictionOffset,
-        prediction.temperature,
-        prediction.humidity,
-        prediction.windDirection,
-        prediction.windSpeed,
-        prediction.precipitation,
-        prediction.light,
-      ],
-    )
-
-    return result.rows[0]
-  }
-
   /*
    * Gets list of predictions for the next 24 hours.
    * index 0 will be the first row with predicted_time after the current time in unix seconds.
@@ -120,15 +98,23 @@ export default class Database {
     if (result.rowCount == 0)
       // WARNING: Dummy result
       return {
-        time: nowUnixTimestamp(),
-        temperature: 10,
-        humidity: 90,
-        windDirection: 0,
+        time: Math.floor(Date.now() / 1000),
+        temperature: 16,
+        humidity: 52,
+        windDirection: 90,
         windSpeed: 3,
-        precipitation: 0,
+        precipitation: 12,
         light: 50,
       }
     return result.rows[0]
+  }
+
+  async getWeatherInRange(startTime: number, endTime: number): Promise<Weather[]> {
+    const result: Result = await this.client.query(
+      'SELECT time, temperature, humidity, wind_direction AS "windDirection", wind_speed AS "windSpeed", precipitation, light FROM "Weather" WHERE time >= $1 AND time < $2 ORDER BY time ASC',
+      [startTime, endTime],
+    )
+    return result.rows
   }
 }
 
