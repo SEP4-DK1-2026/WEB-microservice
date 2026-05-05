@@ -2,6 +2,7 @@
 import { log } from "console"
 import pg from "pg"
 import { Client, Result } from "pg"
+import { nowUnixTimestamp } from "./utils"
 
 // Contains code from MAL for reference
 
@@ -81,7 +82,37 @@ export default class Database {
     return result.rows[0]
   }
 
-  async readLatestWeather(): Promise<Weather> {
+  /*
+   * Gets list of predictions for the next 24 hours.
+   * index 0 will be the first row with predicted_time after the current time in unix seconds.
+   * Then the following 23 values sorted by predicted_time ascending.
+   */
+  async getPredictionsNext24Hours(): Promise<WeatherPrediction[]> {
+    const result: Result = await this.client.query(
+      'SELECT * FROM "WeatherPrediction" WHERE predicted_time >= EXTRACT(EPOCH FROM NOW()) AND predicted_time < EXTRACT(EPOCH FROM NOW()) + 24 * 3600 ORDER BY predicted_time ASC',
+    )
+    return result.rows
+  }
+
+  async getPredictionsNext7Days(): Promise<WeatherPrediction[]> {
+    const result: Result = await this.client.query(
+      'SELECT * FROM "WeatherPrediction" WHERE predicted_time >= EXTRACT(EPOCH FROM NOW()) AND predicted_time < EXTRACT(EPOCH FROM NOW()) + 7 * 24 * 3600 ORDER BY predicted_time ASC',
+    )
+    return result.rows
+  }
+
+  async getPredictionsInRange(
+    startTime: number,
+    endTime: number,
+  ): Promise<WeatherPrediction[]> {
+    const result: Result = await this.client.query(
+      'SELECT * FROM "WeatherPrediction" WHERE predicted_time >= $1 AND predicted_time < $2 ORDER BY predicted_time ASC',
+      [startTime, endTime],
+    )
+    return result.rows
+  }
+
+  async getLatestWeather(): Promise<Weather> {
     const result: Result = await this.client.query(
       'SELECT * FROM "Weather" WHERE time = (SELECT MAX(time) from "Weather")',
     )
@@ -89,7 +120,7 @@ export default class Database {
     if (result.rowCount == 0)
       // WARNING: Dummy result
       return {
-        time: Math.floor(Date.now() / 1000),
+        time: nowUnixTimestamp(),
         temperature: 10,
         humidity: 90,
         windDirection: 0,

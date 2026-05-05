@@ -70,7 +70,7 @@ async function savePredictions(
 }
 
 async function getCurrentWeather(): Promise<Weather> {
-  const weather: Record<string, any> = await database.readLatestWeather()
+  const weather: Record<string, any> = await database.getLatestWeather()
   return {
     time: weather.time,
     temperature: weather.temperature,
