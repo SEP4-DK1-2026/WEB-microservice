@@ -89,14 +89,14 @@ export default class Database {
    */
   async getPredictionsNext24Hours(): Promise<WeatherPrediction[]> {
     const result: Result = await this.client.query(
-      'SELECT * FROM "WeatherPrediction" WHERE predicted_time >= EXTRACT(EPOCH FROM NOW()) AND predicted_time < EXTRACT(EPOCH FROM NOW()) + 24 * 3600 ORDER BY predicted_time ASC',
+      'SELECT predicted_time AS "predictedTime", prediction_offset AS "predictionOffset", temperature, humidity, wind_direction AS "windDirection", wind_speed AS "windSpeed", precipitation, light FROM "WeatherPrediction" WHERE predicted_time >= EXTRACT(EPOCH FROM NOW()) AND predicted_time < EXTRACT(EPOCH FROM NOW()) + 24 * 3600 ORDER BY predicted_time ASC',
     )
     return result.rows
   }
 
   async getPredictionsNext7Days(): Promise<WeatherPrediction[]> {
     const result: Result = await this.client.query(
-      'SELECT * FROM "WeatherPrediction" WHERE predicted_time >= EXTRACT(EPOCH FROM NOW()) AND predicted_time < EXTRACT(EPOCH FROM NOW()) + 7 * 24 * 3600 ORDER BY predicted_time ASC',
+      'SELECT predicted_time AS "predictedTime", prediction_offset AS "predictionOffset", temperature, humidity, wind_direction AS "windDirection", wind_speed AS "windSpeed", precipitation, light FROM "WeatherPrediction" WHERE predicted_time >= EXTRACT(EPOCH FROM NOW()) AND predicted_time < EXTRACT(EPOCH FROM NOW()) + 7 * 24 * 3600 ORDER BY predicted_time ASC',
     )
     return result.rows
   }
@@ -106,7 +106,7 @@ export default class Database {
     endTime: number,
   ): Promise<WeatherPrediction[]> {
     const result: Result = await this.client.query(
-      'SELECT * FROM "WeatherPrediction" WHERE predicted_time >= $1 AND predicted_time < $2 ORDER BY predicted_time ASC',
+      'SELECT predicted_time AS "predictedTime", prediction_offset AS "predictionOffset", temperature, humidity, wind_direction AS "windDirection", wind_speed AS "windSpeed", precipitation, light FROM "WeatherPrediction" WHERE predicted_time >= $1 AND predicted_time < $2 ORDER BY predicted_time ASC',
       [startTime, endTime],
     )
     return result.rows
@@ -114,7 +114,7 @@ export default class Database {
 
   async getLatestWeather(): Promise<Weather> {
     const result: Result = await this.client.query(
-      'SELECT * FROM "Weather" WHERE time = (SELECT MAX(time) from "Weather")',
+      'SELECT time, temperature, humidity, wind_direction AS "windDirection", wind_speed AS "windSpeed", precipitation, light FROM "Weather" WHERE time = (SELECT MAX(time) from "Weather")',
     )
 
     if (result.rowCount == 0)

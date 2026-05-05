@@ -111,13 +111,13 @@ export async function createPredictionsRequest(
   }
 }
 
-app.timer("createPredictions", {
-  schedule: "0 1 */8 * * *",
-  handler: createPredictionsTimer,
-})
+// app.timer("createPredictions", {
+//   schedule: "0 1 */8 * * *",
+//   handler: createPredictionsTimer,
+// })
 
-app.http("createPredictionsRequest", {
-  methods: ["POST"],
-  authLevel: "anonymous",
-  handler: createPredictionsRequest,
-})
+// app.http("createPredictionsRequest", {
+//   methods: ["POST"],
+//   authLevel: "anonymous",
+//   handler: createPredictionsRequest,
+// })
