@@ -1,0 +1,25 @@
+{
+  "name": "web-microservice",
+  "version": "1.0.0",
+  "description": "",
+  "scripts": {
+    "build": "tsc",
+    "watch": "tsc -w",
+    "clean": "rimraf dist",
+    "prestart": "npm run clean && npm run build",
+    "start": "func start",
+    "test": "echo \"No tests yet...\""
+  },
+  "dependencies": {
+    "@azure/functions": "^4.0.0",
+    "dotenv": "^17.4.2",
+    "mssql": "^12.3.1",
+    "pg": "^8.20.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.x",
+    "typescript": "^5.0.0",
+    "rimraf": "^5.0.0"
+  },
+  "main": "dist/src/{index.js,functions/*.js}"
+}
