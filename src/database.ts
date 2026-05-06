@@ -14,7 +14,7 @@ export interface Weather {
 }
 
 export interface WeatherPrediction extends Weather {
-  predictedTime: numberd
+  predictedTime: number
   predictionOffset: number
   temperature: number
   humidity: number
