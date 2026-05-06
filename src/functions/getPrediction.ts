@@ -30,30 +30,41 @@ async function withDatabase<T>(
   }
 }
 
-export async function getPredictionsNext24Hours(
+export async function getPredictionsNextHours(
   request: HttpRequest,
   context: InvocationContext,
 ): Promise<HttpResponseInit> {
   context.log(`Http function processed request for url "${request.url}"`)
+  const hoursFromNow = Number(request.query.get("hoursFromNow"))
 
-  const predictions = await withDatabase((database) =>
-    database.getPredictionsNext24Hours(),
-  )
+  if (!Number.isFinite(hoursFromNow) || hoursFromNow <= 0) {
+    return jsonResponse(
+      {
+        error:
+          "Query parameter 'hoursFromNow' is required and must be a positive finite number.",
+      },
+      400,
+    )
+  }
 
-  return jsonResponse(predictions)
-}
+  const MAX_HOURS = 7 * 24
+  if (hoursFromNow > MAX_HOURS) {
+    return jsonResponse(
+      {
+        error: `Query parameter 'hoursFromNow' must not exceed ${MAX_HOURS} (7 days).`,
+      },
+      400,
+    )
+  }
+  try {
+    const predictions = await withDatabase((database) =>
+      database.getPredictionsNextHours(hoursFromNow),
+    )
 
-export async function getPredictionsNext7Days(
-  request: HttpRequest,
-  context: InvocationContext,
-): Promise<HttpResponseInit> {
-  context.log(`Http function processed request for url "${request.url}"`)
-
-  const predictions = await withDatabase((database) =>
-    database.getPredictionsNext7Days(),
-  )
-
-  return jsonResponse(predictions)
+    return jsonResponse(predictions)
+  } catch (err) {
+    return jsonResponse({ error: err?.message ?? "Internal error" }, 400)
+  }
 }
 
 export async function getPredictionsInRange(
@@ -91,16 +102,10 @@ export async function getPredictionsInRange(
   return jsonResponse(predictions)
 }
 
-app.http("getPredictionsNext24Hours", {
+app.http("getPredictionsNextHours", {
   methods: ["GET"],
   authLevel: "anonymous",
-  handler: getPredictionsNext24Hours,
-})
-
-app.http("getPredictionsNext7Days", {
-  methods: ["GET"],
-  authLevel: "anonymous",
-  handler: getPredictionsNext7Days,
+  handler: getPredictionsNextHours,
 })
 
 app.http("getPredictionsInRange", {

@@ -14,7 +14,7 @@ export interface Weather {
 }
 
 export interface WeatherPrediction extends Weather {
-  predictedTime: number
+  predictedTime: numberd
   predictionOffset: number
   temperature: number
   humidity: number
@@ -72,9 +72,22 @@ export default class Database {
     return result.rows
   }
 
-  async getPredictionsNext7Days(): Promise<WeatherPrediction[]> {
+  async getPredictionsNextHours(
+    hoursFromNow: number,
+  ): Promise<WeatherPrediction[]> {
+    const MAX_HOURS = 7 * 24
+
+    if (!Number.isFinite(hoursFromNow) || hoursFromNow <= 0) {
+      throw new Error("hoursFromNow must be a positive finite number")
+    }
+
+    if (hoursFromNow > MAX_HOURS) {
+      throw new RangeError(`hoursFromNow must not exceed ${MAX_HOURS} (7 days)`)
+    }
+
     const result: Result = await this.client.query(
-      'SELECT predicted_time AS "predictedTime", prediction_offset AS "predictionOffset", temperature, humidity, wind_direction AS "windDirection", wind_speed AS "windSpeed", precipitation, light FROM "WeatherPrediction" WHERE predicted_time >= EXTRACT(EPOCH FROM NOW()) AND predicted_time < EXTRACT(EPOCH FROM NOW()) + 7 * 24 * 3600 ORDER BY predicted_time ASC',
+      'SELECT predicted_time AS "predictedTime", prediction_offset AS "predictionOffset", temperature, humidity, wind_direction AS "windDirection", wind_speed AS "windSpeed", precipitation, light FROM "WeatherPrediction" WHERE predicted_time >= EXTRACT(EPOCH FROM NOW()) AND predicted_time < EXTRACT(EPOCH FROM NOW()) + $1 * 3600 ORDER BY predicted_time ASC',
+      [hoursFromNow],
     )
     return result.rows
   }
@@ -94,22 +107,13 @@ export default class Database {
     const result: Result = await this.client.query(
       'SELECT time, temperature, humidity, wind_direction AS "windDirection", wind_speed AS "windSpeed", precipitation, light FROM "Weather" WHERE time = (SELECT MAX(time) from "Weather")',
     )
-
-    if (result.rowCount == 0)
-      // WARNING: Dummy result
-      return {
-        time: Math.floor(Date.now() / 1000),
-        temperature: 16,
-        humidity: 52,
-        windDirection: 90,
-        windSpeed: 3,
-        precipitation: 12,
-        light: 50,
-      }
     return result.rows[0]
   }
 
-  async getWeatherInRange(startTime: number, endTime: number): Promise<Weather[]> {
+  async getWeatherInRange(
+    startTime: number,
+    endTime: number,
+  ): Promise<Weather[]> {
     const result: Result = await this.client.query(
       'SELECT time, temperature, humidity, wind_direction AS "windDirection", wind_speed AS "windSpeed", precipitation, light FROM "Weather" WHERE time >= $1 AND time < $2 ORDER BY time ASC',
       [startTime, endTime],

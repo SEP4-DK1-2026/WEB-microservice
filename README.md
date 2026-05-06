@@ -13,8 +13,7 @@ PSQL_PASSWORD=
 Available GET requests from API:
 
 ```
-getPredictionsNext24Hours() // returns JSON list of all prediction datapoints from now until 24 hours from now
-getPredictionsNext7Days() // Returns JSON list of all prediction datapoints from now until 7 days from now
+getPredictionsNextHours(hoursFromNow) // Returns all predictions within the range of now, and the number of hours from now
 getPredictionsInRange(startDate, endDate) // Params must be unix timestamps. Can return old predictions.
 
 getLatestWeather() // Returns the latest row from the historical/sensor data table
