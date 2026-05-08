@@ -63,7 +63,8 @@ export async function getPredictionsNextHours(
 
     return jsonResponse(predictions)
   } catch (err) {
-    return jsonResponse({ error: err?.message ?? "Internal error" }, 400)
+    context.log("Database error in getPredictionsNextHours", err)
+    return jsonResponse({ error: "Internal server error" }, 500)
   }
 }
 
@@ -95,11 +96,16 @@ export async function getPredictionsInRange(
     )
   }
 
-  const predictions = await withDatabase((database) =>
-    database.getPredictionsInRange(startTime, endTime),
-  )
+  try {
+    const predictions = await withDatabase((database) =>
+      database.getPredictionsInRange(startTime, endTime),
+    )
 
-  return jsonResponse(predictions)
+    return jsonResponse(predictions)
+  } catch (err) {
+    context.log("Database error in getPredictionsInRange", err)
+    return jsonResponse({ error: "Internal server error" }, 500)
+  }
 }
 
 app.http("getPredictionsNextHours", {

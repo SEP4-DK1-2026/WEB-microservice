@@ -36,11 +36,16 @@ export async function getLatestWeather(
 ): Promise<HttpResponseInit> {
   context.log(`Http function processed request for url "${request.url}"`)
 
-  const weatherReading = await withDatabase((database) =>
-    database.getLatestWeather(),
-  )
+  try {
+    const weatherReading = await withDatabase((database) =>
+      database.getLatestWeather(),
+    )
 
-  return jsonResponse(weatherReading)
+    return jsonResponse(weatherReading)
+  } catch (err) {
+    context.log("Database error in getLatestWeather", err)
+    return jsonResponse({ error: "Internal server error" }, 500)
+  }
 }
 
 export async function getWeatherInRange(
@@ -71,11 +76,16 @@ export async function getWeatherInRange(
     )
   }
 
-  const weatherReadings = await withDatabase((database) =>
-    database.getWeatherInRange(startTime, endTime),
-  )
+  try {
+    const weatherReadings = await withDatabase((database) =>
+      database.getWeatherInRange(startTime, endTime),
+    )
 
-  return jsonResponse(weatherReadings)
+    return jsonResponse(weatherReadings)
+  } catch (err) {
+    context.log("Database error in getWeatherInRange", err)
+    return jsonResponse({ error: "Internal server error" }, 500)
+  }
 }
 
 app.http("getLatestWeather", {

@@ -1,7 +1,5 @@
 // https://learn.microsoft.com/en-us/azure/azure-sql/database/azure-sql-javascript-mssql-quickstart?view=azuresql&tabs=passwordless%2Cservice-connector%2Cportal#configure-the-mssql-connection-object
-import { log } from "console"
-import pg from "pg"
-import { Client, Result } from "pg"
+import { Pool, PoolClient, Result } from "pg"
 
 export interface Weather {
   time: number
@@ -24,40 +22,38 @@ export interface WeatherPrediction extends Weather {
   light: number
 }
 
-export let database = null
+export let database: Database | null = null
 
-export default class Database {
-  config: Record<string, any> = {}
-  client: Client = null
-  connected: boolean = false
+let pool: Pool | null = null
 
-  constructor(config) {
-    this.config = config
+function getPool(config: Record<string, unknown>): Pool {
+  if (!pool) {
+    pool = new Pool(config)
   }
 
-  async connect() {
-    try {
-      this.client = new Client(this.config)
-      await this.client.connect()
-      this.connected = true
-      console.log("Database connected successfully.")
-      return this.client
-    } catch (error) {
-      console.error("Error connecting to the database:", error)
-      this.connected = false
-    }
+  return pool
+}
+
+export default class Database {
+  client: PoolClient | null = null
+
+  constructor(client: PoolClient) {
+    this.client = client
   }
 
   async disconnect() {
-    try {
-      if (this.connected) {
-        await this.client.end()
-        this.connected = false
-        console.log("Database disconnected successfully.")
-      }
-    } catch (error) {
-      console.error("Error disconnecting from the database:", error)
+    if (this.client) {
+      this.client.release()
+      this.client = null
     }
+  }
+
+  private getClient(): PoolClient {
+    if (!this.client) {
+      throw new Error("Database client is not available")
+    }
+
+    return this.client
   }
 
   /*
@@ -66,7 +62,7 @@ export default class Database {
    * Then the following 23 values sorted by predicted_time ascending.
    */
   async getPredictionsNext24Hours(): Promise<WeatherPrediction[]> {
-    const result: Result = await this.client.query(
+    const result: Result = await this.getClient().query(
       'SELECT predicted_time AS "predictedTime", prediction_offset AS "predictionOffset", temperature, humidity, wind_direction AS "windDirection", wind_speed AS "windSpeed", precipitation, light FROM "WeatherPrediction" WHERE predicted_time >= EXTRACT(EPOCH FROM NOW()) AND predicted_time < EXTRACT(EPOCH FROM NOW()) + 24 * 3600 ORDER BY predicted_time ASC',
     )
     return result.rows
@@ -85,7 +81,7 @@ export default class Database {
       throw new RangeError(`hoursFromNow must not exceed ${MAX_HOURS} (7 days)`)
     }
 
-    const result: Result = await this.client.query(
+    const result: Result = await this.getClient().query(
       'SELECT predicted_time AS "predictedTime", prediction_offset AS "predictionOffset", temperature, humidity, wind_direction AS "windDirection", wind_speed AS "windSpeed", precipitation, light FROM "WeatherPrediction" WHERE predicted_time >= EXTRACT(EPOCH FROM NOW()) AND predicted_time < EXTRACT(EPOCH FROM NOW()) + $1 * 3600 ORDER BY predicted_time ASC',
       [hoursFromNow],
     )
@@ -96,7 +92,7 @@ export default class Database {
     startTime: number,
     endTime: number,
   ): Promise<WeatherPrediction[]> {
-    const result: Result = await this.client.query(
+    const result: Result = await this.getClient().query(
       'SELECT predicted_time AS "predictedTime", prediction_offset AS "predictionOffset", temperature, humidity, wind_direction AS "windDirection", wind_speed AS "windSpeed", precipitation, light FROM "WeatherPrediction" WHERE predicted_time >= $1 AND predicted_time < $2 ORDER BY predicted_time ASC',
       [startTime, endTime],
     )
@@ -104,7 +100,7 @@ export default class Database {
   }
 
   async getLatestWeather(): Promise<Weather> {
-    const result: Result = await this.client.query(
+    const result: Result = await this.getClient().query(
       'SELECT time, temperature, humidity, wind_direction AS "windDirection", wind_speed AS "windSpeed", precipitation, light FROM "Weather" WHERE time = (SELECT MAX(time) from "Weather")',
     )
     return result.rows[0]
@@ -114,7 +110,7 @@ export default class Database {
     startTime: number,
     endTime: number,
   ): Promise<Weather[]> {
-    const result: Result = await this.client.query(
+    const result: Result = await this.getClient().query(
       'SELECT time, temperature, humidity, wind_direction AS "windDirection", wind_speed AS "windSpeed", precipitation, light FROM "Weather" WHERE time >= $1 AND time < $2 ORDER BY time ASC',
       [startTime, endTime],
     )
@@ -123,7 +119,8 @@ export default class Database {
 }
 
 export const createDatabaseConnection = async (PASSWORD_CONFIG) => {
-  database = new Database(PASSWORD_CONFIG)
-  await database.connect()
+  const sharedPool = getPool(PASSWORD_CONFIG)
+  const client = await sharedPool.connect()
+  database = new Database(client)
   return database
 }
