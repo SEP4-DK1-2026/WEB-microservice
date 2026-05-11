@@ -1,4 +1,5 @@
 ## Database
+
 Uses an .env file in the root to connect to the database. Values are:
 
 ```
@@ -10,12 +11,15 @@ PSQL_PASSWORD=
 ```
 
 ## HTTP API
-Available GET requests from API:
 
-```
-getPredictionsNextHours(hoursFromNow) // Returns all predictions within the range of now, and the number of hours from now
-getPredictionsInRange(startDate, endDate) // Params must be unix timestamps. Can return old predictions.
+All endpoints are `GET` requests.
 
-getLatestWeather() // Returns the latest row from the historical/sensor data table
-getWeatherInRange(startDate, endDate) // Params must be unix timestamps. Returns historical datapoints.
-```
+| Endpoint                                    | Query params           | Description                                                                                            |
+| ------------------------------------------- | ---------------------- | ------------------------------------------------------------------------------------------------------ |
+| `getPredictionNext24Hours()`                | None                   | Returns the single prediction closest to now + 24h (prefers same hour; fallback is latest within 24h). |
+| `getPredictionsNextHours(hoursFromNow)`     | `hoursFromNow`         | Returns all predictions from now through `hoursFromNow`.                                               |
+| `getPredictionsInRange(startTime, endTime)` | `startTime`, `endTime` | Unix timestamps (seconds); can return old predictions.                                                 |
+| `getLatestWeather()`                        | None                   | Returns the latest row from the historical/sensor data table.                                          |
+| `getWeatherInRange(startTime, endTime)`     | `startTime`, `endTime` | Unix timestamps (seconds); returns historical datapoints.                                              |
+
+Note: `startTime` and `endTime` are always unix timestamps in seconds.
