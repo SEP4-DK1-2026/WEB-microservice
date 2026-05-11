@@ -108,6 +108,31 @@ export async function getPredictionsInRange(
   }
 }
 
+export async function getPredictionNext24Hours(
+  request: HttpRequest,
+  context: InvocationContext,
+): Promise<HttpResponseInit> {
+  context.log(`Http function processed request for url "${request.url}"`)
+
+  try {
+    const prediction = await withDatabase((database) =>
+      database.getPredictionClosestToNext24Hours(),
+    )
+
+    if (!prediction) {
+      return jsonResponse(
+        { error: "No prediction available within the next 24 hours." },
+        404,
+      )
+    }
+
+    return jsonResponse(prediction)
+  } catch (err) {
+    context.log("Database error in getPredictionNext24Hours", err)
+    return jsonResponse({ error: "Internal server error" }, 500)
+  }
+}
+
 app.http("getPredictionsNextHours", {
   methods: ["GET"],
   authLevel: "anonymous",
@@ -118,4 +143,10 @@ app.http("getPredictionsInRange", {
   methods: ["GET"],
   authLevel: "anonymous",
   handler: getPredictionsInRange,
+})
+
+app.http("getPredictionNext24Hours", {
+  methods: ["GET"],
+  authLevel: "anonymous",
+  handler: getPredictionNext24Hours,
 })
