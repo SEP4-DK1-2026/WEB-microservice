@@ -18,6 +18,16 @@ function jsonResponse(body: unknown, status = 200): HttpResponseInit {
   }
 }
 
+function getModelName(request: HttpRequest): "DMI" | "VIA" {
+  const modelName = request.query.get("modelName")
+
+  if (modelName === "VIA") {
+    return "VIA"
+  }
+
+  return "DMI"
+}
+
 async function withDatabase<T>(
   handler: (database: Database) => Promise<T>,
 ): Promise<T> {
@@ -35,7 +45,9 @@ export async function getPredictionsNextHours(
   context: InvocationContext,
 ): Promise<HttpResponseInit> {
   context.log(`Http function processed request for url "${request.url}"`)
+
   const hoursFromNow = Number(request.query.get("hoursFromNow"))
+  const modelName = getModelName(request)
 
   if (!Number.isFinite(hoursFromNow) || hoursFromNow <= 0) {
     return jsonResponse(
@@ -48,6 +60,7 @@ export async function getPredictionsNextHours(
   }
 
   const MAX_HOURS = 7 * 24
+
   if (hoursFromNow > MAX_HOURS) {
     return jsonResponse(
       {
@@ -56,9 +69,10 @@ export async function getPredictionsNextHours(
       400,
     )
   }
+
   try {
     const predictions = await withDatabase((database) =>
-      database.getPredictionsNextHours(hoursFromNow),
+      database.getPredictionsNextHours(hoursFromNow, modelName),
     )
 
     return jsonResponse(predictions)
@@ -76,6 +90,7 @@ export async function getPredictionsInRange(
 
   const startTime = Number(request.query.get("startTime"))
   const endTime = Number(request.query.get("endTime"))
+  const modelName = getModelName(request)
 
   if (!Number.isFinite(startTime) || !Number.isFinite(endTime)) {
     return jsonResponse(
@@ -98,7 +113,7 @@ export async function getPredictionsInRange(
 
   try {
     const predictions = await withDatabase((database) =>
-      database.getPredictionsInRange(startTime, endTime),
+      database.getPredictionsInRange(startTime, endTime, modelName),
     )
 
     return jsonResponse(predictions)
@@ -114,9 +129,11 @@ export async function getPredictionNext24Hours(
 ): Promise<HttpResponseInit> {
   context.log(`Http function processed request for url "${request.url}"`)
 
+  const modelName = getModelName(request)
+
   try {
     const prediction = await withDatabase((database) =>
-      database.getPredictionClosestToNext24Hours(),
+      database.getPredictionClosestToNext24Hours(modelName),
     )
 
     if (!prediction) {
