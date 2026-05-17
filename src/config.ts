@@ -16,5 +16,7 @@ export const PASSWORD_CONFIG = {
   database,
   password,
   port,
-  ssl: true,
+  ssl: {
+  rejectUnauthorized: false,
+},
 }
