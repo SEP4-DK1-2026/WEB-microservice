@@ -5,7 +5,11 @@ import {
   InvocationContext,
 } from "@azure/functions"
 
-import Database, { createDatabaseConnection } from "../database.js"
+import Database, {
+  createDatabaseConnection,
+  type PredictionModelName,
+} from "../database.js"
+
 import { PASSWORD_CONFIG } from "../config.js"
 
 function jsonResponse(body: unknown, status = 200): HttpResponseInit {
@@ -30,12 +34,31 @@ async function withDatabase<T>(
   }
 }
 
+function getModelName(request: HttpRequest): PredictionModelName | null {
+  const modelName = request.query.get("modelName") ?? "DMI"
+
+  if (modelName !== "DMI" && modelName !== "VIA") {
+    return null
+  }
+
+  return modelName
+}
+
 export async function getPredictionsNextHours(
   request: HttpRequest,
   context: InvocationContext,
 ): Promise<HttpResponseInit> {
   context.log(`Http function processed request for url "${request.url}"`)
+
   const hoursFromNow = Number(request.query.get("hoursFromNow"))
+  const modelName = getModelName(request)
+
+  if (!modelName) {
+    return jsonResponse(
+      { error: "Query parameter 'modelName' must be either 'DMI' or 'VIA'." },
+      400,
+    )
+  }
 
   if (!Number.isFinite(hoursFromNow) || hoursFromNow <= 0) {
     return jsonResponse(
@@ -48,6 +71,7 @@ export async function getPredictionsNextHours(
   }
 
   const MAX_HOURS = 7 * 24
+
   if (hoursFromNow > MAX_HOURS) {
     return jsonResponse(
       {
@@ -56,9 +80,10 @@ export async function getPredictionsNextHours(
       400,
     )
   }
+
   try {
     const predictions = await withDatabase((database) =>
-      database.getPredictionsNextHours(hoursFromNow),
+      database.getPredictionsNextHours(hoursFromNow, modelName),
     )
 
     return jsonResponse(predictions)
@@ -76,6 +101,14 @@ export async function getPredictionsInRange(
 
   const startTime = Number(request.query.get("startTime"))
   const endTime = Number(request.query.get("endTime"))
+  const modelName = getModelName(request)
+
+  if (!modelName) {
+    return jsonResponse(
+      { error: "Query parameter 'modelName' must be either 'DMI' or 'VIA'." },
+      400,
+    )
+  }
 
   if (!Number.isFinite(startTime) || !Number.isFinite(endTime)) {
     return jsonResponse(
@@ -98,7 +131,7 @@ export async function getPredictionsInRange(
 
   try {
     const predictions = await withDatabase((database) =>
-      database.getPredictionsInRange(startTime, endTime),
+      database.getPredictionsInRange(startTime, endTime, modelName),
     )
 
     return jsonResponse(predictions)
@@ -114,9 +147,18 @@ export async function getPredictionNext24Hours(
 ): Promise<HttpResponseInit> {
   context.log(`Http function processed request for url "${request.url}"`)
 
+  const modelName = getModelName(request)
+
+  if (!modelName) {
+    return jsonResponse(
+      { error: "Query parameter 'modelName' must be either 'DMI' or 'VIA'." },
+      400,
+    )
+  }
+
   try {
     const prediction = await withDatabase((database) =>
-      database.getPredictionClosestToNext24Hours(),
+      database.getPredictionClosestToNext24Hours(modelName),
     )
 
     if (!prediction) {

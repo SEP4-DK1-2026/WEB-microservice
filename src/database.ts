@@ -29,14 +29,7 @@ function getPool(config: Record<string, unknown>): Pool {
   return pool
 }
 
-function getPredictionTable(modelName: PredictionModelName): string {
-  switch (modelName) {
-    case "DMI":
-      return '"Model"'
-    case "VIA":
-      return '"WeatherPrediction"'
-  }
-}
+const SCHEMA_NAME = "sep4dk1"
 
 export default class Database {
   client: PoolClient | null = null
@@ -63,21 +56,24 @@ export default class Database {
   async getPredictionsNext24Hours(
     modelName: PredictionModelName = "DMI",
   ): Promise<WeatherPrediction[]> {
-    const tableName = getPredictionTable(modelName)
-
     const result: Result = await this.getClient().query(
-      `SELECT predicted_time AS "predictedTime",
-              prediction_offset AS "predictionOffset",
-              temperature,
-              humidity,
-              wind_direction AS "windDirection",
-              wind_speed AS "windSpeed",
-              precipitation,
-              light
-       FROM ${tableName}
-       WHERE predicted_time >= EXTRACT(EPOCH FROM NOW())
-         AND predicted_time < EXTRACT(EPOCH FROM NOW()) + 24 * 3600
-       ORDER BY predicted_time ASC`,
+      `
+      SELECT
+        FLOOR(EXTRACT(EPOCH FROM NOW()) + prediction_offset * 3600) AS "predictedTime",
+        prediction_offset AS "predictionOffset",
+        temperature,
+        humidity,
+        wind_direction AS "windDirection",
+        wind_speed AS "windSpeed",
+        precipitation,
+        light
+      FROM "${SCHEMA_NAME}"."WeatherPrediction"
+      WHERE prediction_offset >= 0
+        AND prediction_offset < 24
+        AND model_name = $1
+      ORDER BY prediction_offset ASC
+      `,
+      [modelName],
     )
 
     return result.rows
@@ -97,22 +93,24 @@ export default class Database {
       throw new RangeError(`hoursFromNow must not exceed ${MAX_HOURS} (7 days)`)
     }
 
-    const tableName = getPredictionTable(modelName)
-
     const result: Result = await this.getClient().query(
-      `SELECT predicted_time AS "predictedTime",
-              prediction_offset AS "predictionOffset",
-              temperature,
-              humidity,
-              wind_direction AS "windDirection",
-              wind_speed AS "windSpeed",
-              precipitation,
-              light
-       FROM ${tableName}
-       WHERE predicted_time >= EXTRACT(EPOCH FROM NOW())
-         AND predicted_time < EXTRACT(EPOCH FROM NOW()) + $1 * 3600
-       ORDER BY predicted_time ASC`,
-      [hoursFromNow],
+      `
+      SELECT
+        FLOOR(EXTRACT(EPOCH FROM NOW()) + prediction_offset * 3600) AS "predictedTime",
+        prediction_offset AS "predictionOffset",
+        temperature,
+        humidity,
+        wind_direction AS "windDirection",
+        wind_speed AS "windSpeed",
+        precipitation,
+        light
+      FROM "${SCHEMA_NAME}"."WeatherPrediction"
+      WHERE prediction_offset >= 0
+        AND prediction_offset < $1
+        AND model_name = $2
+      ORDER BY prediction_offset ASC
+      `,
+      [hoursFromNow, modelName],
     )
 
     return result.rows
@@ -121,57 +119,23 @@ export default class Database {
   async getPredictionClosestToNext24Hours(
     modelName: PredictionModelName = "DMI",
   ): Promise<WeatherPrediction | null> {
-    const tableName = getPredictionTable(modelName)
-
     const result: Result = await this.getClient().query(
-      `WITH params AS (
-        SELECT
-          EXTRACT(EPOCH FROM NOW()) AS now_epoch,
-          EXTRACT(EPOCH FROM NOW() + INTERVAL '24 hours') AS target_epoch,
-          date_trunc('hour', NOW() + INTERVAL '24 hours') AS target_hour_start,
-          date_trunc('hour', NOW() + INTERVAL '24 hours') + INTERVAL '1 hour' AS target_hour_end
-      ),
-      preferred AS (
-        SELECT
-          wp.predicted_time AS "predictedTime",
-          wp.prediction_offset AS "predictionOffset",
-          wp.temperature,
-          wp.humidity,
-          wp.wind_direction AS "windDirection",
-          wp.wind_speed AS "windSpeed",
-          wp.precipitation,
-          wp.light
-        FROM ${tableName} wp
-        CROSS JOIN params p
-        WHERE wp.predicted_time >= p.now_epoch
-          AND wp.predicted_time <= p.target_epoch
-          AND to_timestamp(wp.predicted_time) >= p.target_hour_start
-          AND to_timestamp(wp.predicted_time) < p.target_hour_end
-        ORDER BY ABS(wp.predicted_time - p.target_epoch) ASC, wp.predicted_time ASC
-        LIMIT 1
-      ),
-      fallback AS (
-        SELECT
-          wp.predicted_time AS "predictedTime",
-          wp.prediction_offset AS "predictionOffset",
-          wp.temperature,
-          wp.humidity,
-          wp.wind_direction AS "windDirection",
-          wp.wind_speed AS "windSpeed",
-          wp.precipitation,
-          wp.light
-        FROM ${tableName} wp
-        CROSS JOIN params p
-        WHERE wp.predicted_time >= p.now_epoch
-          AND wp.predicted_time <= p.target_epoch
-        ORDER BY wp.predicted_time DESC
-        LIMIT 1
-      )
-      SELECT * FROM preferred
-      UNION ALL
-      SELECT * FROM fallback
-      WHERE NOT EXISTS (SELECT 1 FROM preferred)
-      LIMIT 1`,
+      `
+      SELECT
+        FLOOR(EXTRACT(EPOCH FROM NOW()) + prediction_offset * 3600) AS "predictedTime",
+        prediction_offset AS "predictionOffset",
+        temperature,
+        humidity,
+        wind_direction AS "windDirection",
+        wind_speed AS "windSpeed",
+        precipitation,
+        light
+      FROM "${SCHEMA_NAME}"."WeatherPrediction"
+      WHERE model_name = $1
+      ORDER BY ABS(prediction_offset - 24) ASC
+      LIMIT 1
+      `,
+      [modelName],
     )
 
     return result.rows[0] ?? null
@@ -182,22 +146,36 @@ export default class Database {
     endTime: number,
     modelName: PredictionModelName = "DMI",
   ): Promise<WeatherPrediction[]> {
-    const tableName = getPredictionTable(modelName)
-
     const result: Result = await this.getClient().query(
-      `SELECT predicted_time AS "predictedTime",
-              prediction_offset AS "predictionOffset",
-              temperature,
-              humidity,
-              wind_direction AS "windDirection",
-              wind_speed AS "windSpeed",
-              precipitation,
-              light
-       FROM ${tableName}
-       WHERE predicted_time >= $1
-         AND predicted_time < $2
-       ORDER BY predicted_time ASC`,
-      [startTime, endTime],
+      `
+      WITH predictions AS (
+        SELECT
+          FLOOR(EXTRACT(EPOCH FROM NOW()) + prediction_offset * 3600) AS predicted_time,
+          prediction_offset,
+          temperature,
+          humidity,
+          wind_direction,
+          wind_speed,
+          precipitation,
+          light
+        FROM "${SCHEMA_NAME}"."WeatherPrediction"
+        WHERE model_name = $3
+      )
+      SELECT
+        predicted_time AS "predictedTime",
+        prediction_offset AS "predictionOffset",
+        temperature,
+        humidity,
+        wind_direction AS "windDirection",
+        wind_speed AS "windSpeed",
+        precipitation,
+        light
+      FROM predictions
+      WHERE predicted_time >= $1
+        AND predicted_time < $2
+      ORDER BY predicted_time ASC
+      `,
+      [startTime, endTime, modelName],
     )
 
     return result.rows
@@ -205,15 +183,21 @@ export default class Database {
 
   async getLatestWeather(): Promise<Weather> {
     const result: Result = await this.getClient().query(
-      `SELECT time,
-              temperature,
-              humidity,
-              wind_direction AS "windDirection",
-              wind_speed AS "windSpeed",
-              precipitation,
-              light
-       FROM "Weather"
-       WHERE time = (SELECT MAX(time) FROM "Weather")`,
+      `
+      SELECT
+        time,
+        temperature,
+        humidity,
+        wind_direction AS "windDirection",
+        wind_speed AS "windSpeed",
+        precipitation,
+        light
+      FROM "${SCHEMA_NAME}"."Weather"
+      WHERE time = (
+        SELECT MAX(time)
+        FROM "${SCHEMA_NAME}"."Weather"
+      )
+      `,
     )
 
     return result.rows[0]
@@ -224,17 +208,20 @@ export default class Database {
     endTime: number,
   ): Promise<Weather[]> {
     const result: Result = await this.getClient().query(
-      `SELECT time,
-              temperature,
-              humidity,
-              wind_direction AS "windDirection",
-              wind_speed AS "windSpeed",
-              precipitation,
-              light
-       FROM "Weather"
-       WHERE time >= $1
-         AND time < $2
-       ORDER BY time ASC`,
+      `
+      SELECT
+        time,
+        temperature,
+        humidity,
+        wind_direction AS "windDirection",
+        wind_speed AS "windSpeed",
+        precipitation,
+        light
+      FROM "${SCHEMA_NAME}"."Weather"
+      WHERE time >= $1
+        AND time < $2
+      ORDER BY time ASC
+      `,
       [startTime, endTime],
     )
 
