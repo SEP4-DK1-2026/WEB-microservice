@@ -152,6 +152,114 @@ export default class Database {
     return result.rows
   }
 
+  async getPredictionsLastAndNext24Hours(
+    modelName = "DMI",
+  ): Promise<WeatherPrediction[]> {
+    const result: Result = await this.getClient().query(
+      `
+      WITH params AS (
+        SELECT
+          EXTRACT(EPOCH FROM NOW()) AS now_epoch,
+          EXTRACT(EPOCH FROM NOW() - INTERVAL '24 hours') AS start_epoch,
+          EXTRACT(EPOCH FROM NOW() + INTERVAL '24 hours') AS end_epoch
+      ),
+      past_ranked AS (
+        SELECT
+          wp.predicted_time,
+          wp.prediction_offset,
+          wp.temperature,
+          wp.humidity,
+          wp.wind_direction,
+          wp.wind_speed,
+          wp.precipitation,
+          wp.light,
+          ROW_NUMBER() OVER (
+            PARTITION BY wp.predicted_time
+            ORDER BY
+              CASE WHEN wp.prediction_offset = 24 THEN 0 ELSE 1 END,
+              wp.prediction_offset ASC
+          ) AS rn
+        FROM "WeatherPrediction" wp
+        CROSS JOIN params p
+        WHERE wp.model_name = $1
+          AND wp.predicted_time >= p.start_epoch
+          AND wp.predicted_time < p.now_epoch
+      ),
+      future_ranked AS (
+        SELECT
+          wp.predicted_time,
+          wp.prediction_offset,
+          wp.temperature,
+          wp.humidity,
+          wp.wind_direction,
+          wp.wind_speed,
+          wp.precipitation,
+          wp.light,
+          ROW_NUMBER() OVER (
+            PARTITION BY wp.predicted_time
+            ORDER BY wp.prediction_offset ASC
+          ) AS rn
+        FROM "WeatherPrediction" wp
+        CROSS JOIN params p
+        WHERE wp.model_name = $1
+          AND wp.predicted_time >= p.now_epoch
+          AND wp.predicted_time < p.end_epoch
+      ),
+      past AS (
+        SELECT
+          predicted_time,
+          prediction_offset,
+          temperature,
+          humidity,
+          wind_direction,
+          wind_speed,
+          precipitation,
+          light
+        FROM past_ranked
+        WHERE rn = 1
+      ),
+      future AS (
+        SELECT
+          predicted_time,
+          prediction_offset,
+          temperature,
+          humidity,
+          wind_direction,
+          wind_speed,
+          precipitation,
+          light
+        FROM future_ranked
+        WHERE rn = 1
+      )
+      SELECT
+        predicted_time AS "predictedTime",
+        prediction_offset AS "predictionOffset",
+        temperature,
+        humidity,
+        wind_direction AS "windDirection",
+        wind_speed AS "windSpeed",
+        precipitation,
+        light
+      FROM past
+      UNION ALL
+      SELECT
+        predicted_time AS "predictedTime",
+        prediction_offset AS "predictionOffset",
+        temperature,
+        humidity,
+        wind_direction AS "windDirection",
+        wind_speed AS "windSpeed",
+        precipitation,
+        light
+      FROM future
+      ORDER BY 1 ASC
+      `,
+      [modelName],
+    )
+
+    return result.rows
+  }
+
   async getPredictionClosestToNext24Hours(
     modelName = "DMI",
   ): Promise<WeatherPrediction | null> {
