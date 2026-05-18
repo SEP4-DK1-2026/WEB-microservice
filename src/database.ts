@@ -58,6 +58,7 @@ export default class Database {
   async getPredictionsNext24Hours(
     modelName = "DMI",
   ): Promise<WeatherPrediction[]> {
+    // Next 24 hours only, pick the lowest offset per 15-minute bucket.
     const result: Result = await this.getClient().query(
       `
       WITH ranked AS (
@@ -115,9 +116,13 @@ export default class Database {
       throw new RangeError(`hoursFromNow must not exceed ${MAX_HOURS} (7 days)`)
     }
 
+    // From now through hoursFromNow, bucket by horizon (15m/2h/3h/6h) and take the lowest offset per bucket.
     const result: Result = await this.getClient().query(
       `
-      WITH ranked AS (
+      WITH params AS (
+        SELECT EXTRACT(EPOCH FROM NOW()) AS now_epoch
+      ),
+      base AS (
         SELECT
           wp.predicted_time,
           wp.prediction_offset,
@@ -127,17 +132,48 @@ export default class Database {
           wp.wind_speed,
           wp.precipitation,
           wp.light,
-          ROUND(wp.predicted_time / 900.0) * 900 AS bucket_epoch,
-          ROW_NUMBER() OVER (
-            PARTITION BY ROUND(wp.predicted_time / 900.0) * 900
-            ORDER BY
-              wp.prediction_offset ASC,
-              ABS(wp.predicted_time - (ROUND(wp.predicted_time / 900.0) * 900)) ASC
-          ) AS rn
+          CASE
+            WHEN wp.predicted_time < p.now_epoch + 24 * 3600 THEN 900
+            WHEN wp.predicted_time < p.now_epoch + 48 * 3600 THEN 7200
+            WHEN wp.predicted_time < p.now_epoch + 96 * 3600 THEN 10800
+            ELSE 21600
+          END AS bucket_seconds
         FROM "WeatherPrediction" wp
+        CROSS JOIN params p
         WHERE wp.model_name = $2
-          AND wp.predicted_time >= EXTRACT(EPOCH FROM NOW())
-          AND wp.predicted_time < EXTRACT(EPOCH FROM NOW()) + $1 * 3600
+          AND wp.predicted_time >= p.now_epoch
+          AND wp.predicted_time < p.now_epoch + $1 * 3600
+      ),
+      ranked AS (
+        SELECT
+          predicted_time,
+          prediction_offset,
+          temperature,
+          humidity,
+          wind_direction,
+          wind_speed,
+          precipitation,
+          light,
+          bucket_epoch,
+          ROW_NUMBER() OVER (
+            PARTITION BY bucket_epoch
+            ORDER BY
+              prediction_offset ASC,
+              ABS(predicted_time - bucket_epoch) ASC
+          ) AS rn
+        FROM (
+          SELECT
+            predicted_time,
+            prediction_offset,
+            temperature,
+            humidity,
+            wind_direction,
+            wind_speed,
+            precipitation,
+            light,
+            (ROUND(predicted_time::numeric / bucket_seconds) * bucket_seconds)::bigint AS bucket_epoch
+          FROM base
+        ) b
       )
       SELECT
         bucket_epoch AS "predictedTime",
@@ -161,6 +197,8 @@ export default class Database {
   async getPredictionsLastAndNext24Hours(
     modelName = "DMI",
   ): Promise<WeatherPrediction[]> {
+    // Last 24 hours prefers offsets >= 24 (closest above if available); next 24 hours prefers lowest offset.
+    // Both sides use 15-minute buckets so near-equal timestamps are grouped together.
     const result: Result = await this.getClient().query(
       `
       WITH params AS (
@@ -183,9 +221,12 @@ export default class Database {
           ROW_NUMBER() OVER (
             PARTITION BY ROUND(wp.predicted_time / 900.0) * 900
             ORDER BY
-              CASE WHEN wp.prediction_offset = 24 THEN 0 ELSE 1 END,
-              ABS(wp.predicted_time - (ROUND(wp.predicted_time / 900.0) * 900)) ASC,
-              wp.prediction_offset ASC
+              CASE WHEN wp.prediction_offset >= 24 THEN 0 ELSE 1 END,
+              CASE
+                WHEN wp.prediction_offset >= 24 THEN wp.prediction_offset
+                ELSE -wp.prediction_offset
+              END ASC,
+              ABS(wp.predicted_time - (ROUND(wp.predicted_time / 900.0) * 900)) ASC
           ) AS rn
         FROM "WeatherPrediction" wp
         CROSS JOIN params p
@@ -274,6 +315,7 @@ export default class Database {
   async getPredictionClosestToNext24Hours(
     modelName = "DMI",
   ): Promise<WeatherPrediction | null> {
+    // Choose the best single prediction near the 24-hour target (same hour if possible; otherwise latest within range).
     const result: Result = await this.getClient().query(
       `
       WITH params AS (
@@ -385,9 +427,13 @@ export default class Database {
     endTime: number,
     modelName = "DMI",
   ): Promise<WeatherPrediction[]> {
+    // Any time range; future buckets widen with horizon to match the data cadence.
     const result: Result = await this.getClient().query(
       `
-      WITH ranked AS (
+      WITH params AS (
+        SELECT EXTRACT(EPOCH FROM NOW()) AS now_epoch
+      ),
+      base AS (
         SELECT
           wp.predicted_time,
           wp.prediction_offset,
@@ -397,17 +443,49 @@ export default class Database {
           wp.wind_speed,
           wp.precipitation,
           wp.light,
-          ROUND(wp.predicted_time / 900.0) * 900 AS bucket_epoch,
-          ROW_NUMBER() OVER (
-            PARTITION BY ROUND(wp.predicted_time / 900.0) * 900
-            ORDER BY
-              wp.prediction_offset ASC,
-              ABS(wp.predicted_time - (ROUND(wp.predicted_time / 900.0) * 900)) ASC
-          ) AS rn
+          CASE
+            WHEN wp.predicted_time < p.now_epoch THEN 900
+            WHEN wp.predicted_time < p.now_epoch + 24 * 3600 THEN 900
+            WHEN wp.predicted_time < p.now_epoch + 48 * 3600 THEN 7200
+            WHEN wp.predicted_time < p.now_epoch + 96 * 3600 THEN 10800
+            ELSE 21600
+          END AS bucket_seconds
         FROM "WeatherPrediction" wp
+        CROSS JOIN params p
         WHERE wp.model_name = $3
           AND wp.predicted_time >= $1
           AND wp.predicted_time < $2
+      ),
+      ranked AS (
+        SELECT
+          predicted_time,
+          prediction_offset,
+          temperature,
+          humidity,
+          wind_direction,
+          wind_speed,
+          precipitation,
+          light,
+          bucket_epoch,
+          ROW_NUMBER() OVER (
+            PARTITION BY bucket_epoch
+            ORDER BY
+              prediction_offset ASC,
+              ABS(predicted_time - bucket_epoch) ASC
+          ) AS rn
+        FROM (
+          SELECT
+            predicted_time,
+            prediction_offset,
+            temperature,
+            humidity,
+            wind_direction,
+            wind_speed,
+            precipitation,
+            light,
+            (ROUND(predicted_time::numeric / bucket_seconds) * bucket_seconds)::bigint AS bucket_epoch
+          FROM base
+        ) b
       )
       SELECT
         bucket_epoch AS "predictedTime",
