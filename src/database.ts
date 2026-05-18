@@ -59,7 +59,39 @@ export default class Database {
     modelName = "DMI",
   ): Promise<WeatherPrediction[]> {
     const result: Result = await this.getClient().query(
-      'SELECT predicted_time AS "predictedTime", prediction_offset AS "predictionOffset", temperature, humidity, wind_direction AS "windDirection", wind_speed AS "windSpeed", precipitation, light FROM "WeatherPrediction" WHERE model_name = $1 AND predicted_time >= EXTRACT(EPOCH FROM NOW()) AND predicted_time < EXTRACT(EPOCH FROM NOW()) + 24 * 3600 ORDER BY predicted_time ASC',
+      `
+      WITH ranked AS (
+        SELECT
+          wp.predicted_time,
+          wp.prediction_offset,
+          wp.temperature,
+          wp.humidity,
+          wp.wind_direction,
+          wp.wind_speed,
+          wp.precipitation,
+          wp.light,
+          ROW_NUMBER() OVER (
+            PARTITION BY wp.predicted_time
+            ORDER BY wp.prediction_offset ASC
+          ) AS rn
+        FROM "WeatherPrediction" wp
+        WHERE wp.model_name = $1
+          AND wp.predicted_time >= EXTRACT(EPOCH FROM NOW())
+          AND wp.predicted_time < EXTRACT(EPOCH FROM NOW()) + 24 * 3600
+      )
+      SELECT
+        predicted_time AS "predictedTime",
+        prediction_offset AS "predictionOffset",
+        temperature,
+        humidity,
+        wind_direction AS "windDirection",
+        wind_speed AS "windSpeed",
+        precipitation,
+        light
+      FROM ranked
+      WHERE rn = 1
+      ORDER BY predicted_time ASC
+      `,
       [modelName],
     )
 
@@ -81,7 +113,39 @@ export default class Database {
     }
 
     const result: Result = await this.getClient().query(
-      'SELECT predicted_time AS "predictedTime", prediction_offset AS "predictionOffset", temperature, humidity, wind_direction AS "windDirection", wind_speed AS "windSpeed", precipitation, light FROM "WeatherPrediction" WHERE model_name = $2 AND predicted_time >= EXTRACT(EPOCH FROM NOW()) AND predicted_time < EXTRACT(EPOCH FROM NOW()) + $1 * 3600 ORDER BY predicted_time ASC',
+      `
+      WITH ranked AS (
+        SELECT
+          wp.predicted_time,
+          wp.prediction_offset,
+          wp.temperature,
+          wp.humidity,
+          wp.wind_direction,
+          wp.wind_speed,
+          wp.precipitation,
+          wp.light,
+          ROW_NUMBER() OVER (
+            PARTITION BY wp.predicted_time
+            ORDER BY wp.prediction_offset ASC
+          ) AS rn
+        FROM "WeatherPrediction" wp
+        WHERE wp.model_name = $2
+          AND wp.predicted_time >= EXTRACT(EPOCH FROM NOW())
+          AND wp.predicted_time < EXTRACT(EPOCH FROM NOW()) + $1 * 3600
+      )
+      SELECT
+        predicted_time AS "predictedTime",
+        prediction_offset AS "predictionOffset",
+        temperature,
+        humidity,
+        wind_direction AS "windDirection",
+        wind_speed AS "windSpeed",
+        precipitation,
+        light
+      FROM ranked
+      WHERE rn = 1
+      ORDER BY predicted_time ASC
+      `,
       [hoursFromNow, modelName],
     )
 
@@ -100,47 +164,91 @@ export default class Database {
           date_trunc('hour', NOW() + INTERVAL '24 hours') AS target_hour_start,
           date_trunc('hour', NOW() + INTERVAL '24 hours') + INTERVAL '1 hour' AS target_hour_end
       ),
-      preferred AS (
+      ranked AS (
         SELECT
-          wp.predicted_time AS "predictedTime",
-          wp.prediction_offset AS "predictionOffset",
+          wp.predicted_time,
+          wp.prediction_offset,
           wp.temperature,
           wp.humidity,
-          wp.wind_direction AS "windDirection",
-          wp.wind_speed AS "windSpeed",
+          wp.wind_direction,
+          wp.wind_speed,
           wp.precipitation,
-          wp.light
+          wp.light,
+          ROW_NUMBER() OVER (
+            PARTITION BY wp.predicted_time
+            ORDER BY wp.prediction_offset ASC
+          ) AS rn
         FROM "WeatherPrediction" wp
         CROSS JOIN params p
         WHERE wp.model_name = $1
           AND wp.predicted_time >= p.now_epoch
           AND wp.predicted_time <= p.target_epoch
-          AND to_timestamp(wp.predicted_time) >= p.target_hour_start
-          AND to_timestamp(wp.predicted_time) < p.target_hour_end
-        ORDER BY ABS(wp.predicted_time - p.target_epoch) ASC, wp.predicted_time ASC
+      ),
+      dedup AS (
+        SELECT
+          predicted_time,
+          prediction_offset,
+          temperature,
+          humidity,
+          wind_direction,
+          wind_speed,
+          precipitation,
+          light
+        FROM ranked
+        WHERE rn = 1
+      ),
+      preferred AS (
+        SELECT
+          predicted_time,
+          prediction_offset,
+          temperature,
+          humidity,
+          wind_direction,
+          wind_speed,
+          precipitation,
+          light
+        FROM dedup
+        CROSS JOIN params p
+        WHERE to_timestamp(predicted_time) >= p.target_hour_start
+          AND to_timestamp(predicted_time) < p.target_hour_end
+        ORDER BY ABS(predicted_time - p.target_epoch) ASC, prediction_offset ASC
         LIMIT 1
       ),
       fallback AS (
         SELECT
-          wp.predicted_time AS "predictedTime",
-          wp.prediction_offset AS "predictionOffset",
-          wp.temperature,
-          wp.humidity,
-          wp.wind_direction AS "windDirection",
-          wp.wind_speed AS "windSpeed",
-          wp.precipitation,
-          wp.light
-        FROM "WeatherPrediction" wp
-        CROSS JOIN params p
-        WHERE wp.model_name = $1
-          AND wp.predicted_time >= p.now_epoch
-          AND wp.predicted_time <= p.target_epoch
-        ORDER BY wp.predicted_time DESC
+          predicted_time,
+          prediction_offset,
+          temperature,
+          humidity,
+          wind_direction,
+          wind_speed,
+          precipitation,
+          light
+        FROM dedup
+        ORDER BY predicted_time DESC, prediction_offset ASC
         LIMIT 1
       )
-      SELECT * FROM preferred
+      SELECT
+        predicted_time AS "predictedTime",
+        prediction_offset AS "predictionOffset",
+        temperature,
+        humidity,
+        wind_direction AS "windDirection",
+        wind_speed AS "windSpeed",
+        precipitation,
+        light
+      FROM preferred
       UNION ALL
-      SELECT * FROM fallback
+      SELECT
+        predicted_time AS "predictedTime",
+        prediction_offset AS "predictionOffset",
+        temperature,
+        humidity,
+        wind_direction AS "windDirection",
+        wind_speed AS "windSpeed",
+        precipitation,
+        light
+      FROM fallback
       WHERE NOT EXISTS (SELECT 1 FROM preferred)
       LIMIT 1
       `,
@@ -156,7 +264,39 @@ export default class Database {
     modelName = "DMI",
   ): Promise<WeatherPrediction[]> {
     const result: Result = await this.getClient().query(
-      'SELECT predicted_time AS "predictedTime", prediction_offset AS "predictionOffset", temperature, humidity, wind_direction AS "windDirection", wind_speed AS "windSpeed", precipitation, light FROM "WeatherPrediction" WHERE model_name = $3 AND predicted_time >= $1 AND predicted_time < $2 ORDER BY predicted_time ASC',
+      `
+      WITH ranked AS (
+        SELECT
+          wp.predicted_time,
+          wp.prediction_offset,
+          wp.temperature,
+          wp.humidity,
+          wp.wind_direction,
+          wp.wind_speed,
+          wp.precipitation,
+          wp.light,
+          ROW_NUMBER() OVER (
+            PARTITION BY wp.predicted_time
+            ORDER BY wp.prediction_offset ASC
+          ) AS rn
+        FROM "WeatherPrediction" wp
+        WHERE wp.model_name = $3
+          AND wp.predicted_time >= $1
+          AND wp.predicted_time < $2
+      )
+      SELECT
+        predicted_time AS "predictedTime",
+        prediction_offset AS "predictionOffset",
+        temperature,
+        humidity,
+        wind_direction AS "windDirection",
+        wind_speed AS "windSpeed",
+        precipitation,
+        light
+      FROM ranked
+      WHERE rn = 1
+      ORDER BY predicted_time ASC
+      `,
       [startTime, endTime, modelName],
     )
 
