@@ -150,6 +150,26 @@ export async function getPredictionNext24Hours(
   }
 }
 
+export async function getPredictionsLastAndNext24Hours(
+  request: HttpRequest,
+  context: InvocationContext,
+): Promise<HttpResponseInit> {
+  context.log(`Http function processed request for url "${request.url}"`)
+
+  const modelName = getModelName(request)
+
+  try {
+    const predictions = await withDatabase((database) =>
+      database.getPredictionsLastAndNext24Hours(modelName),
+    )
+
+    return jsonResponse(predictions)
+  } catch (err) {
+    context.log("Database error in getPredictionsLastAndNext24Hours", err)
+    return jsonResponse({ error: "Internal server error" }, 500)
+  }
+}
+
 app.http("getPredictionsNextHours", {
   methods: ["GET"],
   authLevel: "anonymous",
@@ -166,4 +186,10 @@ app.http("getPredictionNext24Hours", {
   methods: ["GET"],
   authLevel: "anonymous",
   handler: getPredictionNext24Hours,
+})
+
+app.http("getPredictionsLastAndNext24Hours", {
+  methods: ["GET"],
+  authLevel: "anonymous",
+  handler: getPredictionsLastAndNext24Hours,
 })
