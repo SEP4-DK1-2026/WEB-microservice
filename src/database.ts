@@ -70,9 +70,12 @@ export default class Database {
           wp.wind_speed,
           wp.precipitation,
           wp.light,
+          ROUND(wp.predicted_time / 900.0) * 900 AS bucket_epoch,
           ROW_NUMBER() OVER (
-            PARTITION BY wp.predicted_time
-            ORDER BY wp.prediction_offset ASC
+            PARTITION BY ROUND(wp.predicted_time / 900.0) * 900
+            ORDER BY
+              wp.prediction_offset ASC,
+              ABS(wp.predicted_time - (ROUND(wp.predicted_time / 900.0) * 900)) ASC
           ) AS rn
         FROM "WeatherPrediction" wp
         WHERE wp.model_name = $1
@@ -80,7 +83,7 @@ export default class Database {
           AND wp.predicted_time < EXTRACT(EPOCH FROM NOW()) + 24 * 3600
       )
       SELECT
-        predicted_time AS "predictedTime",
+        bucket_epoch AS "predictedTime",
         prediction_offset AS "predictionOffset",
         temperature,
         humidity,
@@ -90,7 +93,7 @@ export default class Database {
         light
       FROM ranked
       WHERE rn = 1
-      ORDER BY predicted_time ASC
+      ORDER BY bucket_epoch ASC
       `,
       [modelName],
     )
@@ -124,9 +127,12 @@ export default class Database {
           wp.wind_speed,
           wp.precipitation,
           wp.light,
+          ROUND(wp.predicted_time / 900.0) * 900 AS bucket_epoch,
           ROW_NUMBER() OVER (
-            PARTITION BY wp.predicted_time
-            ORDER BY wp.prediction_offset ASC
+            PARTITION BY ROUND(wp.predicted_time / 900.0) * 900
+            ORDER BY
+              wp.prediction_offset ASC,
+              ABS(wp.predicted_time - (ROUND(wp.predicted_time / 900.0) * 900)) ASC
           ) AS rn
         FROM "WeatherPrediction" wp
         WHERE wp.model_name = $2
@@ -134,7 +140,7 @@ export default class Database {
           AND wp.predicted_time < EXTRACT(EPOCH FROM NOW()) + $1 * 3600
       )
       SELECT
-        predicted_time AS "predictedTime",
+        bucket_epoch AS "predictedTime",
         prediction_offset AS "predictionOffset",
         temperature,
         humidity,
@@ -144,7 +150,7 @@ export default class Database {
         light
       FROM ranked
       WHERE rn = 1
-      ORDER BY predicted_time ASC
+      ORDER BY bucket_epoch ASC
       `,
       [hoursFromNow, modelName],
     )
@@ -173,10 +179,12 @@ export default class Database {
           wp.wind_speed,
           wp.precipitation,
           wp.light,
+          ROUND(wp.predicted_time / 900.0) * 900 AS bucket_epoch,
           ROW_NUMBER() OVER (
-            PARTITION BY wp.predicted_time
+            PARTITION BY ROUND(wp.predicted_time / 900.0) * 900
             ORDER BY
               CASE WHEN wp.prediction_offset = 24 THEN 0 ELSE 1 END,
+              ABS(wp.predicted_time - (ROUND(wp.predicted_time / 900.0) * 900)) ASC,
               wp.prediction_offset ASC
           ) AS rn
         FROM "WeatherPrediction" wp
@@ -195,9 +203,12 @@ export default class Database {
           wp.wind_speed,
           wp.precipitation,
           wp.light,
+          ROUND(wp.predicted_time / 900.0) * 900 AS bucket_epoch,
           ROW_NUMBER() OVER (
-            PARTITION BY wp.predicted_time
-            ORDER BY wp.prediction_offset ASC
+            PARTITION BY ROUND(wp.predicted_time / 900.0) * 900
+            ORDER BY
+              wp.prediction_offset ASC,
+              ABS(wp.predicted_time - (ROUND(wp.predicted_time / 900.0) * 900)) ASC
           ) AS rn
         FROM "WeatherPrediction" wp
         CROSS JOIN params p
@@ -207,7 +218,7 @@ export default class Database {
       ),
       past AS (
         SELECT
-          predicted_time,
+          bucket_epoch,
           prediction_offset,
           temperature,
           humidity,
@@ -220,7 +231,7 @@ export default class Database {
       ),
       future AS (
         SELECT
-          predicted_time,
+          bucket_epoch,
           prediction_offset,
           temperature,
           humidity,
@@ -232,7 +243,7 @@ export default class Database {
         WHERE rn = 1
       )
       SELECT
-        predicted_time AS "predictedTime",
+        bucket_epoch AS "predictedTime",
         prediction_offset AS "predictionOffset",
         temperature,
         humidity,
@@ -243,7 +254,7 @@ export default class Database {
       FROM past
       UNION ALL
       SELECT
-        predicted_time AS "predictedTime",
+        bucket_epoch AS "predictedTime",
         prediction_offset AS "predictionOffset",
         temperature,
         humidity,
@@ -282,9 +293,12 @@ export default class Database {
           wp.wind_speed,
           wp.precipitation,
           wp.light,
+          ROUND(wp.predicted_time / 900.0) * 900 AS bucket_epoch,
           ROW_NUMBER() OVER (
-            PARTITION BY wp.predicted_time
-            ORDER BY wp.prediction_offset ASC
+            PARTITION BY ROUND(wp.predicted_time / 900.0) * 900
+            ORDER BY
+              wp.prediction_offset ASC,
+              ABS(wp.predicted_time - (ROUND(wp.predicted_time / 900.0) * 900)) ASC
           ) AS rn
         FROM "WeatherPrediction" wp
         CROSS JOIN params p
@@ -294,7 +308,7 @@ export default class Database {
       ),
       dedup AS (
         SELECT
-          predicted_time,
+          bucket_epoch,
           prediction_offset,
           temperature,
           humidity,
@@ -307,7 +321,7 @@ export default class Database {
       ),
       preferred AS (
         SELECT
-          predicted_time,
+          bucket_epoch,
           prediction_offset,
           temperature,
           humidity,
@@ -317,14 +331,14 @@ export default class Database {
           light
         FROM dedup
         CROSS JOIN params p
-        WHERE to_timestamp(predicted_time) >= p.target_hour_start
-          AND to_timestamp(predicted_time) < p.target_hour_end
-        ORDER BY ABS(predicted_time - p.target_epoch) ASC, prediction_offset ASC
+        WHERE to_timestamp(bucket_epoch) >= p.target_hour_start
+          AND to_timestamp(bucket_epoch) < p.target_hour_end
+        ORDER BY ABS(bucket_epoch - p.target_epoch) ASC, prediction_offset ASC
         LIMIT 1
       ),
       fallback AS (
         SELECT
-          predicted_time,
+          bucket_epoch,
           prediction_offset,
           temperature,
           humidity,
@@ -333,11 +347,11 @@ export default class Database {
           precipitation,
           light
         FROM dedup
-        ORDER BY predicted_time DESC, prediction_offset ASC
+        ORDER BY bucket_epoch DESC, prediction_offset ASC
         LIMIT 1
       )
       SELECT
-        predicted_time AS "predictedTime",
+        bucket_epoch AS "predictedTime",
         prediction_offset AS "predictionOffset",
         temperature,
         humidity,
@@ -348,7 +362,7 @@ export default class Database {
       FROM preferred
       UNION ALL
       SELECT
-        predicted_time AS "predictedTime",
+        bucket_epoch AS "predictedTime",
         prediction_offset AS "predictionOffset",
         temperature,
         humidity,
@@ -383,9 +397,12 @@ export default class Database {
           wp.wind_speed,
           wp.precipitation,
           wp.light,
+          ROUND(wp.predicted_time / 900.0) * 900 AS bucket_epoch,
           ROW_NUMBER() OVER (
-            PARTITION BY wp.predicted_time
-            ORDER BY wp.prediction_offset ASC
+            PARTITION BY ROUND(wp.predicted_time / 900.0) * 900
+            ORDER BY
+              wp.prediction_offset ASC,
+              ABS(wp.predicted_time - (ROUND(wp.predicted_time / 900.0) * 900)) ASC
           ) AS rn
         FROM "WeatherPrediction" wp
         WHERE wp.model_name = $3
@@ -393,7 +410,7 @@ export default class Database {
           AND wp.predicted_time < $2
       )
       SELECT
-        predicted_time AS "predictedTime",
+        bucket_epoch AS "predictedTime",
         prediction_offset AS "predictionOffset",
         temperature,
         humidity,
@@ -403,7 +420,7 @@ export default class Database {
         light
       FROM ranked
       WHERE rn = 1
-      ORDER BY predicted_time ASC
+      ORDER BY bucket_epoch ASC
       `,
       [startTime, endTime, modelName],
     )
